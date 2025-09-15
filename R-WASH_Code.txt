@@ -1,0 +1,151 @@
+
+int control_interval = 1; // in minutes
+
+#include <RTClib.h>
+#include <SPI.h>
+#include <SD.h>
+
+RTC_DS1307 rtc;
+File file;
+
+byte cs_pin = 10;
+
+const int stepPin = 3;
+const int button_1 = 7;
+const int button_2 = 6;
+const int button_3 = 5;
+
+bool activate_control_1 = false;
+bool activate_control_2 = false;
+bool activate_control_3 = false;
+
+int already_triggered = 0;
+
+// Function responsible for motor control, depending on the selected mode
+void control() {
+  if (activate_control_1) {
+    digitalWrite(stepPin, HIGH);
+    delay(25);
+    digitalWrite(stepPin, LOW);
+    delay(25);
+  }
+
+  if (activate_control_2) {
+    int pulses = 8;
+    for (int i = 0; i < pulses; i++) {
+      digitalWrite(stepPin, HIGH);
+      delay(100);
+      digitalWrite(stepPin, LOW);
+      delay(100);
+      if (digitalRead(button_3) == LOW) {
+        i = pulses; // cancels operation
+      }
+    }
+    activate_control_2 = false;
+  }
+
+  if (activate_control_3) {
+    digitalWrite(stepPin, HIGH);
+    delay(100);
+    digitalWrite(stepPin, LOW);
+    delay(100);
+    activate_control_3 = false;
+  }
+}
+
+void setup() {
+  // Setup configuration executed once at startup
+  pinMode(stepPin, OUTPUT);
+
+  pinMode(button_1, INPUT_PULLUP);
+  pinMode(button_2, INPUT_PULLUP);
+  pinMode(button_3, INPUT_PULLUP);
+
+  Serial.begin(115200); // Serial communication speed
+
+  //====================
+  Serial.println("Starting SD card...");
+  if (!SD.begin(cs_pin)) {
+    Serial.println("Failed!");
+    return;
+  }
+
+  Serial.println("SD card started.");
+  Serial.println();
+  //====================
+
+  Serial.println("Starting RTC...");
+  if (!rtc.begin()) {
+    Serial.println("RTC not found!");
+    while (1); // hangs here forever
+  }
+
+  if (!rtc.isrunning()) {
+    Serial.println("RTC is not working!");
+    rtc.adjust(DateTime(F(__DATE__), F(__TIME__))); // Sets date and time at compilation
+  }
+  Serial.println("RTC started.");
+  Serial.println();
+}
+
+// Function to write timestamped logs to SD card
+void log(char *msg) {
+  Serial.println("Logging...");
+  file = SD.open("data.log", FILE_WRITE);
+
+  DateTime now = rtc.now();
+
+  file.print(now.day(), DEC);
+  file.print('/');
+  file.print(now.month(), DEC);
+  file.print('/');
+  file.print(now.year(), DEC);
+  file.print(' ');
+  file.print(now.hour(), DEC);
+  file.print(':');
+  file.print(now.minute(), DEC);
+  file.print(':');
+  file.print(now.second(), DEC);
+  file.print(' ');
+  file.print(msg);
+  file.close();
+  delay(2000);
+  Serial.println("Done.");
+}
+
+void loop() {
+  // Main loop executed continuously
+
+  DateTime now = rtc.now();
+
+  if ((now.minute() % control_interval) == 0) {
+    if (!already_triggered) {
+      activate_control_2 = true;
+      already_triggered = 1;
+      log("system triggered (mode 2) \n");
+    }
+  } else {
+    already_triggered = 0;
+  }
+
+  // Manual control via buttons
+  if (digitalRead(button_1) == LOW) {
+    activate_control_1 = true;
+    activate_control_2 = false;
+    activate_control_3 = false;
+  }
+
+  if (digitalRead(button_2) == LOW) {
+    activate_control_1 = false;
+    activate_control_2 = true;
+    activate_control_3 = false;
+  }
+
+  if (digitalRead(button_3) == LOW) {
+    activate_control_1 = false;
+    activate_control_2 = false;
+    activate_control_3 = true;
+  }
+
+  control();
+}
